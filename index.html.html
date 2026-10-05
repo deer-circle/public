@@ -1,0 +1,2188 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>3주간 통합 시간표 생성기 & 데이터 허브</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- SheetJS (Excel .xlsx export) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <!-- html2canvas (High-res image capture) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- jsPDF (PDF document generation) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Google & Pretendard Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Pretendard', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #print-capture-area, #print-capture-area * {
+        visibility: visible;
+      }
+      #print-capture-area {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        box-shadow: none !important;
+        border: none !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col font-sans">
+
+  <!-- Top Navigation Header -->
+  <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+      
+      <!-- Brand & Title -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-100 flex-shrink-0">
+          <i data-lucide="calendar-range" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base sm:text-lg font-black text-slate-900 tracking-tight leading-none">3주간 통합 시간표</h1>
+            <span class="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200">24H 포맷</span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">09:00 ~ 21:00 • 5대 필수항목 & 데이터 백업/복원 지원</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons: Backup/Restore, Weekend, Export, Add Course -->
+      <div class="flex items-center gap-2">
+        
+        <!-- Weekend Toggle -->
+        <label class="hidden lg:flex items-center gap-2 text-xs font-semibold text-slate-600 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200/70 transition cursor-pointer select-none">
+          <input type="checkbox" id="weekend-toggle" class="rounded text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 cursor-pointer">
+          <span>주말(토/일)</span>
+        </label>
+
+        <!-- Data Sync/Migration Hub (JSON Backup & Restore) -->
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 gap-1">
+          <button onclick="window.exportJsonBackup()" class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 hover:bg-white rounded-lg transition cursor-pointer shadow-xs" title="다른 컴퓨터로 옮길 수 있는 백업 파일 다운로드">
+            <i data-lucide="download" class="w-3.5 h-3.5 text-indigo-600"></i>
+            <span class="hidden sm:inline">데이터 백업</span>
+          </button>
+          
+          <button onclick="document.getElementById('json-file-input').click()" class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:text-emerald-600 hover:bg-white rounded-lg transition cursor-pointer shadow-xs" title="다른 컴퓨터에서 가져온 백업 파일 불러오기">
+            <i data-lucide="upload" class="w-3.5 h-3.5 text-emerald-600"></i>
+            <span class="hidden sm:inline">데이터 복원</span>
+          </button>
+
+          <!-- Hidden File Input for JSON Restore -->
+          <input type="file" id="json-file-input" accept=".json,application/json" class="hidden" onchange="window.handleJsonFileSelected(event)">
+        </div>
+
+        <!-- Export Hub Dropdown Button -->
+        <div class="relative">
+          <button id="export-dropdown-btn" class="flex items-center gap-1.5 sm:gap-2 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold text-xs sm:text-sm px-3 py-2 rounded-xl transition border border-indigo-200 cursor-pointer shadow-xs">
+            <i data-lucide="share-2" class="w-4 h-4 text-indigo-600"></i>
+            <span>내보내기</span>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+          </button>
+
+          <!-- Export Menu -->
+          <div id="export-dropdown-menu" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-50">
+            <div class="px-3.5 py-1.5 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">문서 및 스프레드시트</div>
+            <button onclick="window.exportExcel()" class="w-full px-3.5 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-700 flex items-center gap-3 transition cursor-pointer">
+              <div class="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-xs">XLS</div>
+              <div>
+                <p class="font-bold text-slate-800">엑셀 다운로드 (.xlsx)</p>
+                <p class="text-[10px] text-slate-400">1~3주차 및 소요시간 통계 시트 포함</p>
+              </div>
+            </button>
+
+            <button onclick="window.copyHwpTable()" class="w-full px-3.5 py-2.5 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-700 flex items-center gap-3 transition cursor-pointer">
+              <div class="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs">HWP</div>
+              <div>
+                <p class="font-bold text-slate-800">한글(HWP) 표 복사 (Ctrl+V)</p>
+                <p class="text-[10px] text-slate-400">한글 문서에 즉시 붙여넣기</p>
+              </div>
+            </button>
+
+            <button onclick="window.downloadHwpFile()" class="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-700 flex items-center gap-3 transition cursor-pointer">
+              <div class="w-7 h-7 rounded-lg bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-xs">FILE</div>
+              <div>
+                <p class="font-bold text-slate-800">한글 호환 파일 (.hwp)</p>
+                <p class="text-[10px] text-slate-400">한글 전용 파일 다운로드</p>
+              </div>
+            </button>
+
+            <div class="my-1 border-t border-slate-100"></div>
+            <div class="px-3.5 py-1.5 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">미디어 및 인쇄</div>
+
+            <button onclick="window.exportImage()" class="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-700 flex items-center gap-3 transition cursor-pointer">
+              <div class="w-7 h-7 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-xs">PNG</div>
+              <div>
+                <p class="font-bold text-slate-800">고화질 이미지 저장 (.png)</p>
+                <p class="text-[10px] text-slate-400">2x 고해상도 그래픽 파일</p>
+              </div>
+            </button>
+
+            <button onclick="window.exportPdf()" class="w-full px-3.5 py-2 text-left text-xs font-medium text-slate-700 hover:bg-indigo-50/70 hover:text-indigo-700 flex items-center gap-3 transition cursor-pointer">
+              <div class="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-xs">PDF</div>
+              <div>
+                <p class="font-bold text-slate-800">PDF 문서 저장 (.pdf)</p>
+                <p class="text-[10px] text-slate-400">A4 가로 비율 최적화</p>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <!-- Add Course Button -->
+        <button onclick="window.openAddModal()" class="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs sm:text-sm px-3.5 sm:px-4 py-2 rounded-xl transition shadow-md shadow-indigo-200 cursor-pointer">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          <span>과목 등록</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 3-Week Tabs & Quick Actions Bar -->
+  <div class="bg-white border-b border-slate-200 shadow-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Week Tabs -->
+      <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-2xl border border-slate-200/80">
+        <button onclick="window.switchWeek(1)" id="tab-week-1" class="week-tab-btn flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer">
+          <i data-lucide="calendar" class="w-4 h-4"></i>
+          <span>1주차</span>
+          <span id="badge-count-w1" class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 font-bold">0</span>
+        </button>
+        <button onclick="window.switchWeek(2)" id="tab-week-2" class="week-tab-btn flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer">
+          <i data-lucide="calendar" class="w-4 h-4"></i>
+          <span>2주차</span>
+          <span id="badge-count-w2" class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 font-bold">0</span>
+        </button>
+        <button onclick="window.switchWeek(3)" id="tab-week-3" class="week-tab-btn flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer">
+          <i data-lucide="calendar" class="w-4 h-4"></i>
+          <span>3주차</span>
+          <span id="badge-count-w3" class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-200 text-slate-700 font-bold">0</span>
+        </button>
+      </div>
+
+      <!-- Quick Week Operations -->
+      <div class="flex items-center gap-2">
+        <button onclick="window.openCopyWeekModal()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-700 hover:text-indigo-600 bg-slate-100 hover:bg-slate-200/80 rounded-xl transition cursor-pointer">
+          <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+          <span>현재 주차 복사</span>
+        </button>
+
+        <button onclick="window.resetWeekData()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-100 hover:bg-rose-50 rounded-xl transition cursor-pointer" title="현재 주차 초기화">
+          <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">주차 비우기</span>
+        </button>
+
+        <button onclick="window.loadSampleData()" class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200/80 rounded-xl transition cursor-pointer">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+          <span>3주 샘플 불러오기</span>
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Main Application Body -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full flex flex-col gap-6">
+
+    <!-- Color & Instructor Aggregate Widget -->
+    <section class="bg-white rounded-3xl border border-slate-200 p-5 shadow-xs">
+      <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+            <i data-lucide="pie-chart" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h2 class="text-sm sm:text-base font-extrabold text-slate-900">구분 색상별 총 수업시간 자동 계산</h2>
+            <p class="text-xs text-slate-500">동일한 구분 색상으로 지정된 과목들의 총 수업시간을 분·시간 단위로 실시간 합산합니다.</p>
+          </div>
+        </div>
+
+        <!-- Scope Switcher: Current Week vs. 3 Weeks Overall -->
+        <div class="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 text-xs font-bold">
+          <button id="scope-current-btn" onclick="window.setStatsScope('current')" class="px-3 py-1.5 rounded-lg bg-white text-indigo-600 shadow-xs transition cursor-pointer">
+            현재 주차 (<span id="scope-week-label">1주차</span>)
+          </button>
+          <button id="scope-total-btn" onclick="window.setStatsScope('all')" class="px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition cursor-pointer">
+            3주간 전체 통계
+          </button>
+        </div>
+      </div>
+
+      <!-- Total Hours Headline & Color Aggregation Cards -->
+      <div class="mt-4 flex flex-col lg:flex-row gap-5 items-stretch">
+        
+        <!-- Summary Total Banner -->
+        <div class="lg:w-64 bg-slate-50 rounded-2xl p-4 border border-slate-200 flex flex-col justify-between">
+          <div>
+            <span class="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider" id="stats-banner-title">1주차 총 수업 시간</span>
+            <div class="mt-1 flex items-baseline gap-1.5">
+              <span id="grand-total-hours" class="text-3xl font-black text-indigo-600">0</span>
+              <span class="text-sm font-bold text-slate-700">시간</span>
+              <span id="grand-total-mins" class="text-lg font-bold text-slate-500">00</span>
+              <span class="text-xs font-semibold text-slate-400">분</span>
+            </div>
+            <p id="grand-total-courses" class="text-xs text-slate-500 mt-1 font-medium">총 0개 과목 배정</p>
+          </div>
+
+          <div class="mt-4 pt-3 border-t border-slate-200/80 flex items-center justify-between text-[11px] text-slate-500">
+            <span>24시간제 슬롯</span>
+            <span class="font-extrabold text-slate-700">09:00 - 21:00</span>
+          </div>
+        </div>
+
+        <!-- Color Groups Dynamic Cards Container -->
+        <div id="category-stats-container" class="flex-1 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          <!-- Dynamically populated via renderStatisticsDashboard() -->
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Schedule & Sidebar Split -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      
+      <!-- Timetable Grid Area -->
+      <div class="lg:col-span-9 bg-white rounded-3xl border border-slate-200 shadow-xs overflow-hidden" id="print-capture-area">
+        
+        <!-- Timetable Top Bar -->
+        <div class="p-4 sm:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4 bg-white">
+          <div class="flex items-center gap-3">
+            <input 
+              type="text" 
+              id="timetable-title-input" 
+              class="text-lg sm:text-xl font-extrabold text-slate-900 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-indigo-500 focus:outline-none transition px-1 py-0.5" 
+              value="2026 집중 교육 1주차 시간표"
+            >
+            <span id="current-week-pill" class="px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              1주차 보기
+            </span>
+          </div>
+
+          <div class="flex items-center gap-2 text-xs text-slate-500">
+            <span class="inline-flex items-center gap-1.5 font-medium px-2.5 py-1 rounded-xl bg-slate-100 text-slate-700">
+              <i data-lucide="clock-4" class="w-3.5 h-3.5 text-indigo-600"></i>
+              <span>09:00 ~ 21:00 (12개 교시)</span>
+            </span>
+            <span class="hidden sm:inline-flex items-center gap-1.5 font-medium px-2.5 py-1 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-100">
+              <i data-lucide="grid" class="w-3.5 h-3.5"></i>
+              <span>1시간 단위 정각 눈금</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Responsive Timetable Grid -->
+        <div class="overflow-x-auto w-full select-none bg-slate-50/40">
+          <div id="timetable-grid" class="min-w-[700px]">
+            <!-- Rendered dynamically -->
+          </div>
+        </div>
+
+        <!-- Grid Legend & Guidelines -->
+        <div class="p-3 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between text-[11px] text-slate-500 gap-2">
+          <div class="flex items-center gap-3 font-medium">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-400"></span>실선: 1시간 구분선 (정각)</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-slate-300"></span>점선: 30분 보조선</span>
+          </div>
+          <div class="text-slate-400">
+            시간표 카드를 클릭하면 상세 정보 확인 및 수정/삭제가 가능합니다.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Sidebar: Current Week List -->
+      <aside class="lg:col-span-3 flex flex-col gap-4">
+        
+        <div class="bg-white rounded-3xl border border-slate-200 p-4 shadow-xs">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div class="flex items-center gap-2">
+              <i data-lucide="list-ordered" class="w-4 h-4 text-indigo-600"></i>
+              <h3 class="font-black text-sm text-slate-900">현재 주차 과목 목록</h3>
+            </div>
+            <span id="sidebar-course-count" class="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+              0개
+            </span>
+          </div>
+
+          <!-- Course Items Scroll Container -->
+          <div id="sidebar-course-list" class="mt-3 flex flex-col gap-2 max-h-[540px] overflow-y-auto pr-1">
+            <!-- Dynamically populated -->
+          </div>
+
+          <!-- Empty State -->
+          <div id="sidebar-empty-state" class="hidden flex-col items-center justify-center py-8 text-center text-slate-400">
+            <div class="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 mb-2">
+              <i data-lucide="calendar-plus" class="w-6 h-6"></i>
+            </div>
+            <p class="text-xs font-bold text-slate-600">등록된 과목이 없습니다.</p>
+            <p class="text-[11px] text-slate-400 mt-0.5">상단의 '과목 등록' 버튼을 눌러보세요.</p>
+          </div>
+
+          <button onclick="window.openAddModal()" class="w-full mt-3 py-2.5 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold text-xs flex items-center justify-center gap-1.5 transition border border-indigo-200 cursor-pointer">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>새 과목 추가하기</span>
+          </button>
+        </div>
+
+      </aside>
+    </div>
+
+  </main>
+
+  <!-- MODAL: Add / Edit Course (5 Essential Inputs) -->
+  <div id="course-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs hidden flex items-center justify-center p-4 overflow-y-auto">
+    <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 relative max-h-[92vh] overflow-y-auto">
+      
+      <!-- Close Button -->
+      <button onclick="window.closeCourseModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <!-- Modal Header -->
+      <div class="mb-5">
+        <span id="modal-week-badge" class="text-[11px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">1주차 등록</span>
+        <h3 id="modal-heading" class="text-lg font-black text-slate-900 mt-1">과목 등록</h3>
+        <p class="text-xs text-slate-500">과목명, 강사명, 수업시간, 요일 및 구분색깔을 지정하세요.</p>
+      </div>
+
+      <!-- Form for 5 Essential Inputs -->
+      <form id="course-form" onsubmit="window.handleSaveCourse(event)" class="space-y-4">
+        <input type="hidden" id="form-edit-id">
+
+        <!-- 1. 과목명 (필수) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+            <span>1. 과목명</span>
+            <span class="text-rose-500 font-black">*</span>
+          </label>
+          <input 
+            type="text" 
+            id="form-name" 
+            required 
+            placeholder="과목명을 입력하세요 (예: 딥러닝 & 머신러닝, 알고리즘 실습)" 
+            class="w-full px-3.5 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+          >
+        </div>
+
+        <!-- 2. 강사명 (필수) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+            <span>2. 강사명</span>
+            <span class="text-rose-500 font-black">*</span>
+          </label>
+          <div class="relative">
+            <span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+              <i data-lucide="user" class="w-4 h-4"></i>
+            </span>
+            <input 
+              type="text" 
+              id="form-instructor" 
+              required 
+              placeholder="강사 또는 교수명을 입력하세요 (예: 김영희 교수, 이민수 강사)" 
+              class="w-full pl-9 pr-3.5 py-2.5 text-xs font-semibold rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+            >
+          </div>
+        </div>
+
+        <!-- 요일 선택 (월~일 다중 선택) -->
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
+            <span>진행 요일 선택</span>
+            <span class="text-rose-500 font-black">*</span>
+          </label>
+          <div class="grid grid-cols-7 gap-1.5" id="form-days-selector">
+            <button type="button" data-day="mon" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer">월</button>
+            <button type="button" data-day="tue" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer">화</button>
+            <button type="button" data-day="wed" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer">수</button>
+            <button type="button" data-day="thu" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer">목</button>
+            <button type="button" data-day="fri" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer">금</button>
+            <button type="button" data-day="sat" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-rose-500 hover:bg-rose-50 transition cursor-pointer">토</button>
+            <button type="button" data-day="sun" class="day-select-btn py-2 text-xs font-bold rounded-xl border border-slate-200 text-rose-500 hover:bg-rose-50 transition cursor-pointer">일</button>
+          </div>
+          <p id="form-day-error" class="hidden text-[11px] text-rose-500 font-semibold mt-1">적어도 하나 이상의 요일을 선택해주세요.</p>
+        </div>
+
+        <!-- 3 & 4. 수업시작시간 & 수업종료시간 (24시간 형식) -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+              <span>3. 수업시작시간 (24H)</span>
+              <span class="text-rose-500 font-black">*</span>
+            </label>
+            <select id="form-start-time" class="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 focus:border-indigo-500 outline-none bg-white cursor-pointer">
+              <!-- Populated dynamically (09:00 - 20:30) -->
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+              <span>4. 수업종료시간 (24H)</span>
+              <span class="text-rose-500 font-black">*</span>
+            </label>
+            <select id="form-end-time" class="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 focus:border-indigo-500 outline-none bg-white cursor-pointer">
+              <!-- Populated dynamically (09:30 - 21:00) -->
+            </select>
+          </div>
+        </div>
+
+        <!-- 5. 구분색깔지정 (10종 프리셋 + 커스텀 컬러 피커) -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-bold text-slate-700 flex items-center gap-1">
+              <span>5. 구분색깔지정</span>
+              <span class="text-rose-500 font-black">*</span>
+            </label>
+            <span id="selected-color-name" class="text-[11px] font-extrabold text-indigo-600">라벤더 블루</span>
+          </div>
+
+          <!-- 10 Presets -->
+          <div class="flex flex-wrap items-center gap-2" id="color-palette-list">
+            <!-- Rendered via JS -->
+          </div>
+
+          <!-- Custom Color Picker -->
+          <div class="mt-2.5 flex items-center gap-2">
+            <input type="color" id="custom-color-picker" class="w-7 h-7 rounded-lg border border-slate-200 cursor-pointer p-0">
+            <span class="text-xs text-slate-500">직접 고르기: <span id="custom-color-hex" class="font-mono font-bold text-slate-700">#6366F1</span></span>
+          </div>
+
+          <!-- Live Preview Box -->
+          <div id="modal-color-preview" class="mt-3 p-3 rounded-2xl border text-xs font-bold flex flex-col gap-1 transition-colors">
+            <div class="flex items-center justify-between">
+              <span id="preview-title" class="font-black text-sm">과목명 미리보기</span>
+              <span id="preview-time" class="text-[10px] opacity-80">09:00 ~ 11:00</span>
+            </div>
+            <div class="text-[11px] opacity-90 flex items-center gap-1">
+              <i data-lucide="user" class="w-3.5 h-3.5"></i>
+              <span id="preview-instructor">강사명 미리보기</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Conflict Alert Box -->
+        <div id="modal-overlap-alert" class="hidden p-3 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+          <div class="flex items-center gap-2 font-bold mb-0.5">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600"></i>
+            <span>동일 시간대 일정 중복 안내</span>
+          </div>
+          <p id="modal-overlap-desc" class="text-[11px] text-amber-700"></p>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+          <button type="button" onclick="window.closeCourseModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
+            취소
+          </button>
+          <button type="submit" id="form-submit-btn" class="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-md shadow-indigo-200 cursor-pointer">
+            저장하기
+          </button>
+        </div>
+
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Copy Week -->
+  <div id="copy-week-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 relative">
+      <button onclick="window.closeCopyWeekModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <div class="mb-4">
+        <div class="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-2">
+          <i data-lucide="copy" class="w-5 h-5"></i>
+        </div>
+        <h3 class="text-lg font-black text-slate-900">시간표 주차 복사</h3>
+        <p class="text-xs text-slate-500 mt-0.5">현재 주차(<span id="copy-src-label" class="font-bold text-indigo-600">1주차</span>)의 모든 과목을 다른 주차로 복제합니다.</p>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block text-xs font-bold text-slate-700">붙여넣을 대상 주차</label>
+        
+        <div class="grid grid-cols-1 gap-2">
+          <label class="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 hover:border-indigo-300 bg-slate-50/50 cursor-pointer transition">
+            <input type="radio" name="copy-dest" value="2" id="copy-dest-2" class="text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer" checked>
+            <div>
+              <p class="text-xs font-bold text-slate-800">2주차에 덮어쓰기</p>
+              <p class="text-[10px] text-slate-400">2주차 기존 과목을 교체합니다.</p>
+            </div>
+          </label>
+
+          <label class="flex items-center gap-3 p-3 rounded-2xl border border-slate-200 hover:border-indigo-300 bg-slate-50/50 cursor-pointer transition">
+            <input type="radio" name="copy-dest" value="3" id="copy-dest-3" class="text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer">
+            <div>
+              <p class="text-xs font-bold text-slate-800">3주차에 덮어쓰기</p>
+              <p class="text-[10px] text-slate-400">3주차 기존 과목을 교체합니다.</p>
+            </div>
+          </label>
+
+          <label class="flex items-center gap-3 p-3 rounded-2xl border border-indigo-200 hover:border-indigo-400 bg-indigo-50/40 cursor-pointer transition">
+            <input type="radio" name="copy-dest" value="all" id="copy-dest-all" class="text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer">
+            <div>
+              <p class="text-xs font-bold text-indigo-900">모든 남은 주차에 일괄 복사</p>
+              <p class="text-[10px] text-indigo-600">다른 2개 주차 전체를 동일하게 구성합니다.</p>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 mt-6 pt-3 border-t border-slate-100">
+        <button onclick="window.closeCopyWeekModal()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">취소</button>
+        <button onclick="window.executeCopyWeek()" class="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-md shadow-indigo-200 cursor-pointer">복사 실행</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Restore Confirmation (No alert/confirm) -->
+  <div id="restore-confirm-modal" class="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-md p-6 relative">
+      <div class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-3">
+        <i data-lucide="refresh-cw" class="w-6 h-6"></i>
+      </div>
+      <h3 class="text-lg font-black text-slate-900">시간표 데이터 복원 확인</h3>
+      <p class="text-xs text-slate-500 mt-1">
+        선택한 백업 파일로 3주간의 시간표를 복원하시겠습니까? 현재 브라우저에 저장된 기존 시간표는 대체됩니다.
+      </p>
+
+      <div class="mt-4 p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
+        <div class="flex justify-between">
+          <span class="text-slate-400">백업 일시</span>
+          <span id="restore-meta-date" class="font-bold text-slate-700">-</span>
+        </div>
+        <div class="flex justify-between">
+          <span class="text-slate-400">총 포함 과목 수</span>
+          <span id="restore-meta-count" class="font-bold text-indigo-600">0개</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 mt-6 pt-3 border-t border-slate-100">
+        <button onclick="window.cancelRestore()" class="px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">
+          취소
+        </button>
+        <button onclick="window.confirmRestore()" class="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-md shadow-indigo-200 cursor-pointer">
+          복원 실행
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Course Detail & Delete Confirmation -->
+  <div id="detail-modal" class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-sm p-6 relative">
+      <button onclick="window.closeDetailModal()" class="absolute top-5 right-5 text-slate-400 hover:text-slate-700 p-1 rounded-xl hover:bg-slate-100 transition cursor-pointer">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+
+      <div class="flex items-center gap-3 mb-4">
+        <span id="detail-color-pill" class="w-4 h-4 rounded-full flex-shrink-0"></span>
+        <div>
+          <span id="detail-color-name" class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">구분색</span>
+          <h3 id="detail-title" class="text-base font-extrabold text-slate-900 mt-0.5">과목명</h3>
+        </div>
+      </div>
+
+      <div class="space-y-2.5 text-xs bg-slate-50 rounded-2xl p-4 border border-slate-100 text-slate-600">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400 flex items-center gap-1.5"><i data-lucide="user" class="w-3.5 h-3.5"></i>담당 강사</span>
+          <span id="detail-instructor" class="font-bold text-slate-900">-</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400 flex items-center gap-1.5"><i data-lucide="clock" class="w-3.5 h-3.5"></i>수업 시간 (24H)</span>
+          <span id="detail-time" class="font-bold text-slate-800">09:00 ~ 11:00</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400 flex items-center gap-1.5"><i data-lucide="hourglass" class="w-3.5 h-3.5"></i>회당 수업 길이</span>
+          <span id="detail-duration" class="font-bold text-indigo-600">2시간</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400 flex items-center gap-1.5"><i data-lucide="calendar" class="w-3.5 h-3.5"></i>진행 요일</span>
+          <span id="detail-days" class="font-bold text-slate-800">월, 수</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 mt-5">
+        <button id="detail-delete-btn" class="px-3.5 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer flex items-center gap-1">
+          <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+          <span>삭제</span>
+        </button>
+        <button id="detail-edit-btn" class="px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition shadow-md shadow-indigo-200 cursor-pointer flex items-center gap-1">
+          <i data-lucide="edit-3" class="w-3.5 h-3.5"></i>
+          <span>수정</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <script>
+    (function() {
+      // 10 Curated Modern Color Presets
+      const COLOR_PRESETS = [
+        { name: '라벤더 블루', hex: '#6366F1', bg: '#EEF2FF', border: '#C7D2FE', text: '#4338CA', dot: '#6366F1' },
+        { name: '프레시 민트', hex: '#10B981', bg: '#ECFDF5', border: '#A7F3D0', text: '#065F46', dot: '#10B981' },
+        { name: '스위트 피치', hex: '#F97316', bg: '#FFF7ED', border: '#FFEDD5', text: '#9A3412', dot: '#F97316' },
+        { name: '스카이 오션', hex: '#0284C7', bg: '#F0F9FF', border: '#BAE6FD', text: '#0369A1', dot: '#0284C7' },
+        { name: '소프트 로즈', hex: '#F43F5E', bg: '#FFF1F2', border: '#FECDD3', text: '#BE123C', dot: '#F43F5E' },
+        { name: '허니 앰버', hex: '#EAB308', bg: '#FEFCE8', border: '#FEF08A', text: '#854D0E', dot: '#EAB308' },
+        { name: '바이올렛 퍼플', hex: '#A855F7', bg: '#FAF5FF', border: '#E9D5FF', text: '#6B21A8', dot: '#A855F7' },
+        { name: '에메랄드 틸', hex: '#14B8A6', bg: '#F0FDFA', border: '#99F6E4', text: '#115E59', dot: '#14B8A6' },
+        { name: '모던 차콜', hex: '#64748B', bg: '#F8FAFC', border: '#CBD5E1', text: '#334155', dot: '#64748B' },
+        { name: '코랄 핑크', hex: '#EC4899', bg: '#FDF2F8', border: '#FBCFE8', text: '#9D174D', dot: '#EC4899' },
+      ];
+
+      const DAYS = [
+        { key: 'mon', label: '월요일', short: '월' },
+        { key: 'tue', label: '화요일', short: '화' },
+        { key: 'wed', label: '수요일', short: '수' },
+        { key: 'thu', label: '목요일', short: '목' },
+        { key: 'fri', label: '금요일', short: '금' },
+        { key: 'sat', label: '토요일', short: '토' },
+        { key: 'sun', label: '일요일', short: '일' }
+      ];
+
+      // Exact 24-Hour Range: 09:00 ~ 21:00 (12 hours)
+      const START_HOUR = 9;   // 09:00
+      const END_HOUR = 21;    // 21:00
+      const HOUR_HEIGHT = 68; // px per hour
+      const STORAGE_KEY = 'TIMETABLE_3WEEKS_BACKUP_SUPPORT_V1';
+
+      // 3-Week Sample Datasets
+      const SAMPLE_WEEK_1 = [
+        {
+          id: 'w1_c1',
+          name: '딥러닝 & 생성형 AI',
+          instructor: '김태우 교수',
+          days: ['mon', 'wed'],
+          startTime: '09:00',
+          endTime: '11:00',
+          color: COLOR_PRESETS[0]
+        },
+        {
+          id: 'w1_c2',
+          name: '데이터 구조 및 알고리즘',
+          instructor: '박서현 교수',
+          days: ['tue', 'thu'],
+          startTime: '10:00',
+          endTime: '12:00',
+          color: COLOR_PRESETS[0]
+        },
+        {
+          id: 'w1_c3',
+          name: '비즈니스 영어 회화',
+          instructor: 'Michael Brown 강사',
+          days: ['tue', 'thu'],
+          startTime: '13:00',
+          endTime: '14:30',
+          color: COLOR_PRESETS[1]
+        },
+        {
+          id: 'w1_c4',
+          name: '산학협력 캡스톤 프로젝트',
+          instructor: '이정민 교수',
+          days: ['fri'],
+          startTime: '13:00',
+          endTime: '17:00',
+          color: COLOR_PRESETS[2]
+        },
+        {
+          id: 'w1_c5',
+          name: '클라우드 인프라 아키텍처',
+          instructor: '최원석 강사',
+          days: ['wed'],
+          startTime: '15:00',
+          endTime: '18:00',
+          color: COLOR_PRESETS[3]
+        },
+        {
+          id: 'w1_c6',
+          name: '알고리즘 문제풀이 코칭',
+          instructor: '정지훈 멘토',
+          days: ['mon', 'thu'],
+          startTime: '19:00',
+          endTime: '21:00',
+          color: COLOR_PRESETS[5]
+        }
+      ];
+
+      const SAMPLE_WEEK_2 = [
+        {
+          id: 'w2_c1',
+          name: '딥러닝 모델 파인튜닝',
+          instructor: '김태우 교수',
+          days: ['mon', 'wed'],
+          startTime: '09:00',
+          endTime: '11:00',
+          color: COLOR_PRESETS[0]
+        },
+        {
+          id: 'w2_c2',
+          name: '알고리즘 코딩 테스트 실전',
+          instructor: '박서현 교수',
+          days: ['tue', 'thu'],
+          startTime: '10:00',
+          endTime: '12:00',
+          color: COLOR_PRESETS[0]
+        },
+        {
+          id: 'w2_c3',
+          name: '비즈니스 프레젠테이션 스킬',
+          instructor: 'Michael Brown 강사',
+          days: ['tue', 'thu'],
+          startTime: '13:00',
+          endTime: '14:30',
+          color: COLOR_PRESETS[1]
+        },
+        {
+          id: 'w2_c4',
+          name: '산학협력 멘토링 & 코드리뷰',
+          instructor: '이정민 교수',
+          days: ['fri'],
+          startTime: '13:00',
+          endTime: '18:00',
+          color: COLOR_PRESETS[2]
+        },
+        {
+          id: 'w2_c5',
+          name: '피트니스 & 스트레칭',
+          instructor: '강동원 코치',
+          days: ['mon', 'wed', 'fri'],
+          startTime: '19:30',
+          endTime: '21:00',
+          color: COLOR_PRESETS[4]
+        }
+      ];
+
+      const SAMPLE_WEEK_3 = [
+        {
+          id: 'w3_c1',
+          name: '최종 프로젝트 해커톤',
+          instructor: '산학협력 멘토단',
+          days: ['mon', 'tue', 'wed'],
+          startTime: '09:00',
+          endTime: '16:00',
+          color: COLOR_PRESETS[2]
+        },
+        {
+          id: 'w3_c2',
+          name: '영어 최종 모의 면접',
+          instructor: 'Michael Brown 강사',
+          days: ['thu'],
+          startTime: '10:00',
+          endTime: '12:00',
+          color: COLOR_PRESETS[1]
+        },
+        {
+          id: 'w3_c3',
+          name: '클라우드 무중단 배포 실습',
+          instructor: '최원석 강사',
+          days: ['thu'],
+          startTime: '14:00',
+          endTime: '18:00',
+          color: COLOR_PRESETS[3]
+        },
+        {
+          id: 'w3_c4',
+          name: '3주 과정 수료식 & 시상',
+          instructor: '운영위원회',
+          days: ['fri'],
+          startTime: '14:00',
+          endTime: '17:00',
+          color: COLOR_PRESETS[6]
+        }
+      ];
+
+      // Application State
+      let appState = {
+        currentWeek: 1,
+        statsScope: 'current',
+        showWeekend: false,
+        titles: {
+          1: '2026 집중 교육 1주차 시간표',
+          2: '2026 집중 교육 2주차 시간표',
+          3: '2026 집중 교육 3주차 시간표'
+        },
+        weeks: {
+          1: [],
+          2: [],
+          3: []
+        },
+        selectedColor: COLOR_PRESETS[0],
+        activeDetailCourse: null,
+        pendingRestoreData: null
+      };
+
+      function timeToMinutes(timeStr) {
+        if (!timeStr) return 0;
+        const [h, m] = timeStr.split(':').map(Number);
+        return h * 60 + m;
+      }
+
+      function minutesToTime(mins) {
+        const h = Math.floor(mins / 60);
+        const m = mins % 60;
+        return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+      }
+
+      function formatDuration(totalMins) {
+        const hours = Math.floor(totalMins / 60);
+        const mins = totalMins % 60;
+        if (hours > 0 && mins > 0) return `${hours}시간 ${mins}분`;
+        if (hours > 0) return `${hours}시간`;
+        return `${mins}분`;
+      }
+
+      function loadPersistedState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const data = JSON.parse(raw);
+            appState.currentWeek = data.currentWeek || 1;
+            appState.showWeekend = !!data.showWeekend;
+            appState.titles = data.titles || appState.titles;
+            appState.weeks = data.weeks || { 1: [], 2: [], 3: [] };
+          } else {
+            appState.weeks[1] = JSON.parse(JSON.stringify(SAMPLE_WEEK_1));
+            appState.weeks[2] = JSON.parse(JSON.stringify(SAMPLE_WEEK_2));
+            appState.weeks[3] = JSON.parse(JSON.stringify(SAMPLE_WEEK_3));
+          }
+        } catch (e) {
+          console.error('LocalStorage load failed:', e);
+          appState.weeks[1] = JSON.parse(JSON.stringify(SAMPLE_WEEK_1));
+          appState.weeks[2] = JSON.parse(JSON.stringify(SAMPLE_WEEK_2));
+          appState.weeks[3] = JSON.parse(JSON.stringify(SAMPLE_WEEK_3));
+        }
+      }
+
+      function savePersistedState() {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({
+            currentWeek: appState.currentWeek,
+            showWeekend: appState.showWeekend,
+            titles: appState.titles,
+            weeks: appState.weeks
+          }));
+        } catch (e) {
+          console.error('LocalStorage save failed:', e);
+        }
+      }
+
+      window.exportJsonBackup = function() {
+        try {
+          const backupPayload = {
+            appName: '3WeeksTimetableMaker',
+            version: '1.0',
+            exportedAt: new Date().toISOString(),
+            titles: appState.titles,
+            showWeekend: appState.showWeekend,
+            weeks: appState.weeks
+          };
+
+          const jsonStr = JSON.stringify(backupPayload, null, 2);
+          const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          const today = new Date().toISOString().slice(0, 10);
+          a.href = url;
+          a.download = `시간표_백업_${today}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+
+          showToast('시간표 백업 파일(.json)이 다운로드되었습니다.', 'success');
+        } catch (err) {
+          console.error('JSON export error:', err);
+          showToast('백업 파일 생성 중 오류가 발생했습니다.', 'error');
+        }
+      };
+
+      window.handleJsonFileSelected = function(e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          try {
+            const parsed = JSON.parse(evt.target.result);
+
+            // Validation check
+            if (!parsed.weeks || typeof parsed.weeks !== 'object') {
+              showToast('유효하지 않은 시간표 백업 파일 형식입니다.', 'error');
+              e.target.value = '';
+              return;
+            }
+
+            appState.pendingRestoreData = parsed;
+
+            // Compute total course count in restore file
+            let totalRestoreCourses = 0;
+            [1, 2, 3].forEach(w => {
+              if (Array.isArray(parsed.weeks[w])) {
+                totalRestoreCourses += parsed.weeks[w].length;
+              }
+            });
+
+            const metaDate = parsed.exportedAt ? new Date(parsed.exportedAt).toLocaleString('ko-KR') : '알 수 없음';
+            document.getElementById('restore-meta-date').textContent = metaDate;
+            document.getElementById('restore-meta-count').textContent = `${totalRestoreCourses}개`;
+
+            // Open restore confirmation modal
+            document.getElementById('restore-confirm-modal').classList.remove('hidden');
+          } catch (err) {
+            console.error('JSON parse error:', err);
+            showToast('JSON 파일을 해석할 수 없습니다. 파일 손상 여부를 확인하세요.', 'error');
+          } finally {
+            e.target.value = '';
+          }
+        };
+
+        reader.readAsText(file);
+      };
+
+      window.confirmRestore = function() {
+        if (!appState.pendingRestoreData) return;
+
+        const data = appState.pendingRestoreData;
+        appState.weeks = {
+          1: Array.isArray(data.weeks[1]) ? data.weeks[1] : [],
+          2: Array.isArray(data.weeks[2]) ? data.weeks[2] : [],
+          3: Array.isArray(data.weeks[3]) ? data.weeks[3] : []
+        };
+
+        if (data.titles && typeof data.titles === 'object') {
+          appState.titles = data.titles;
+        }
+        if (typeof data.showWeekend === 'boolean') {
+          appState.showWeekend = data.showWeekend;
+          const wt = document.getElementById('weekend-toggle');
+          if (wt) wt.checked = appState.showWeekend;
+        }
+
+        savePersistedState();
+        appState.pendingRestoreData = null;
+        document.getElementById('restore-confirm-modal').classList.add('hidden');
+
+        renderTimetableGrid();
+        showToast('백업 파일로부터 시간표가 완벽하게 복원되었습니다!', 'success');
+      };
+
+      window.cancelRestore = function() {
+        appState.pendingRestoreData = null;
+        document.getElementById('restore-confirm-modal').classList.add('hidden');
+      };
+
+      function populateTimePickers() {
+        const startSel = document.getElementById('form-start-time');
+        const endSel = document.getElementById('form-end-time');
+        if (!startSel || !endSel) return;
+
+        startSel.innerHTML = '';
+        endSel.innerHTML = '';
+
+        for (let m = START_HOUR * 60; m <= (END_HOUR * 60) - 30; m += 30) {
+          const t = minutesToTime(m);
+          startSel.add(new Option(t, t));
+        }
+
+        for (let m = (START_HOUR * 60) + 30; m <= END_HOUR * 60; m += 30) {
+          const t = minutesToTime(m);
+          endSel.add(new Option(t, t));
+        }
+
+        startSel.addEventListener('change', () => {
+          updateEndTimeOptions();
+          updateFormLivePreview();
+        });
+        endSel.addEventListener('change', updateFormLivePreview);
+      }
+
+      function updateEndTimeOptions() {
+        const startSel = document.getElementById('form-start-time');
+        const endSel = document.getElementById('form-end-time');
+        if (!startSel || !endSel) return;
+
+        const currentStartMin = timeToMinutes(startSel.value);
+        const currentEndMin = timeToMinutes(endSel.value);
+
+        endSel.innerHTML = '';
+        for (let m = currentStartMin + 30; m <= END_HOUR * 60; m += 30) {
+          const t = minutesToTime(m);
+          endSel.add(new Option(t, t));
+        }
+
+        if (currentEndMin > currentStartMin && currentEndMin <= END_HOUR * 60) {
+          endSel.value = minutesToTime(currentEndMin);
+        } else {
+          endSel.value = minutesToTime(Math.min(currentStartMin + 60, END_HOUR * 60));
+        }
+      }
+
+      function computeColorStatistics() {
+        const coursesToAnalyze = appState.statsScope === 'current'
+          ? (appState.weeks[appState.currentWeek] || [])
+          : [...(appState.weeks[1] || []), ...(appState.weeks[2] || []), ...(appState.weeks[3] || [])];
+
+        const groupMap = new Map();
+        let grandTotalMinutes = 0;
+
+        coursesToAnalyze.forEach(c => {
+          const sMin = timeToMinutes(c.startTime);
+          const eMin = timeToMinutes(c.endTime);
+          const courseDur = Math.max(0, eMin - sMin) * (c.days ? c.days.length : 1);
+          grandTotalMinutes += courseDur;
+
+          const colorKey = (c.color?.hex || '#6366F1').toLowerCase();
+
+          if (!groupMap.has(colorKey)) {
+            groupMap.set(colorKey, {
+              color: c.color,
+              name: c.color?.name || '커스텀 색상',
+              totalMinutes: 0,
+              courseCount: 0,
+              items: []
+            });
+          }
+
+          const grp = groupMap.get(colorKey);
+          grp.totalMinutes += courseDur;
+          grp.courseCount += 1;
+          grp.items.push(c);
+        });
+
+        return {
+          grandTotalMinutes,
+          totalCourses: coursesToAnalyze.length,
+          groups: Array.from(groupMap.values()).sort((a, b) => b.totalMinutes - a.totalMinutes)
+        };
+      }
+
+      function renderStatisticsDashboard() {
+        const stats = computeColorStatistics();
+        const container = document.getElementById('category-stats-container');
+        const grandHoursEl = document.getElementById('grand-total-hours');
+        const grandMinsEl = document.getElementById('grand-total-mins');
+        const grandCoursesEl = document.getElementById('grand-total-courses');
+        const bannerTitle = document.getElementById('stats-banner-title');
+        const scopeWeekLabel = document.getElementById('scope-week-label');
+
+        if (scopeWeekLabel) scopeWeekLabel.textContent = `${appState.currentWeek}주차`;
+
+        if (bannerTitle) {
+          bannerTitle.textContent = appState.statsScope === 'current'
+            ? `${appState.currentWeek}주차 총 수업 시간`
+            : `3주간 전체 누적 수업 시간`;
+        }
+
+        const totalH = Math.floor(stats.grandTotalMinutes / 60);
+        const totalM = stats.grandTotalMinutes % 60;
+
+        if (grandHoursEl) grandHoursEl.textContent = totalH;
+        if (grandMinsEl) grandMinsEl.textContent = String(totalM).padStart(2, '0');
+        if (grandCoursesEl) grandCoursesEl.textContent = `총 ${stats.totalCourses}개 과목 배정`;
+
+        if (!container) return;
+
+        if (stats.groups.length === 0) {
+          container.innerHTML = `
+            <div class="col-span-full py-8 text-center text-slate-400 text-xs font-semibold">
+              등록된 수업 일정이 없습니다. 과목을 추가하면 구분색별 총 소요시간이 자동 계산됩니다.
+            </div>
+          `;
+          return;
+        }
+
+        let html = '';
+        stats.groups.forEach(g => {
+          const hours = (g.totalMinutes / 60).toFixed(1);
+          const percent = stats.grandTotalMinutes > 0
+            ? Math.round((g.totalMinutes / stats.grandTotalMinutes) * 100)
+            : 0;
+          const bg = g.color?.bg || '#F8FAFC';
+          const border = g.color?.border || '#E2E8F0';
+          const text = g.color?.text || '#334155';
+          const dot = g.color?.dot || '#6366F1';
+
+          const distinctCourses = Array.from(new Set(g.items.map(item => `${item.name} (${item.instructor})`)));
+
+          html += `
+            <div class="p-3.5 rounded-2xl transition hover:shadow-md border flex flex-col justify-between" 
+                 style="background-color: ${bg}; border-color: ${border};">
+              <div>
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: ${dot};"></span>
+                    <span class="font-extrabold text-xs truncate" style="color: ${text};">
+                      ${g.name}
+                    </span>
+                  </div>
+                  <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white/90 shadow-xs" style="color: ${text};">
+                    ${percent}%
+                  </span>
+                </div>
+
+                <div class="mt-2 flex items-baseline gap-1">
+                  <span class="text-xl font-black" style="color: ${text};">${formatDuration(g.totalMinutes)}</span>
+                  <span class="text-[11px] opacity-75 font-semibold">(${hours}h)</span>
+                </div>
+
+                <div class="mt-2 text-[10px] space-y-0.5 opacity-90 line-clamp-2" style="color: ${text};">
+                  ${distinctCourses.map(c => `<div>• ${c}</div>`).join('')}
+                </div>
+              </div>
+
+              <div class="mt-3 pt-2 border-t border-black/5 flex items-center justify-between text-[10px] font-semibold opacity-80" style="color: ${text};">
+                <span>${g.courseCount}개 과목 배정</span>
+                <div class="w-16 bg-white/80 h-1.5 rounded-full overflow-hidden">
+                  <div class="h-full rounded-full" style="width: ${percent}%; background-color: ${dot};"></div>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+
+        container.innerHTML = html;
+      }
+
+      function renderTimetableGrid() {
+        const container = document.getElementById('timetable-grid');
+        if (!container) return;
+
+        const currentCourses = appState.weeks[appState.currentWeek] || [];
+        const activeDays = appState.showWeekend ? DAYS : DAYS.slice(0, 5);
+        const totalHours = END_HOUR - START_HOUR; // 12 hours (09:00 to 21:00)
+        const totalHeight = totalHours * HOUR_HEIGHT;
+
+        let html = '';
+
+        // Day Columns Header Row
+        html += `<div class="grid bg-slate-100/90 border-b border-slate-200" style="grid-template-columns: 88px repeat(${activeDays.length}, minmax(0, 1fr));">`;
+        html += `
+          <div class="h-12 border-r border-slate-200 flex flex-col items-center justify-center text-[11px] font-black text-slate-500 uppercase tracking-tight">
+            <span>24H / 교시</span>
+          </div>
+        `;
+
+        activeDays.forEach(day => {
+          const isWeekend = day.key === 'sat' || day.key === 'sun';
+          html += `
+            <div class="h-12 border-r border-slate-200 last:border-r-0 flex flex-col items-center justify-center px-1">
+              <span class="text-xs font-black ${isWeekend ? 'text-rose-500' : 'text-slate-800'}">${day.label}</span>
+              <span class="text-[10px] text-slate-400 font-bold">${day.short}</span>
+            </div>
+          `;
+        });
+        html += `</div>`;
+
+        // Body Grid: Hourly slots
+        html += `<div class="relative grid bg-white" style="grid-template-columns: 88px repeat(${activeDays.length}, minmax(0, 1fr)); height: ${totalHeight}px;">`;
+
+        // Left Time Scale (09:00 - 21:00)
+        html += `<div class="relative border-r border-slate-200 bg-slate-50/80 divide-y divide-slate-200">`;
+        for (let i = 0; i < totalHours; i++) {
+          const hStart = START_HOUR + i;
+          const hEnd = hStart + 1;
+          const period = i + 1;
+
+          html += `
+            <div class="flex flex-col items-center justify-center px-1 text-center select-none" style="height: ${HOUR_HEIGHT}px;">
+              <span class="text-xs font-black text-slate-800 tracking-tight leading-none">${String(hStart).padStart(2, '0')}:00</span>
+              <span class="text-[10px] text-slate-400 font-medium mt-1 leading-none">~ ${String(hEnd).padStart(2, '0')}:00</span>
+              <span class="text-[9px] text-indigo-700 font-bold bg-indigo-50 border border-indigo-200 rounded px-1.5 py-0.5 mt-1 leading-none">${period}교시</span>
+            </div>
+          `;
+        }
+        html += `</div>`;
+
+        // Day Columns & Solid/Dashed Hour lines
+        activeDays.forEach(day => {
+          html += `<div class="relative border-r border-slate-200 last:border-r-0">`;
+
+          for (let i = 0; i < totalHours; i++) {
+            html += `
+              <div class="absolute w-full border-b border-slate-200 pointer-events-none" style="top: ${i * HOUR_HEIGHT}px; height: ${HOUR_HEIGHT}px;">
+                <div class="w-full border-b border-dashed border-slate-100" style="height: ${HOUR_HEIGHT / 2}px;"></div>
+              </div>
+            `;
+          }
+
+          // Course Cards on Grid
+          currentCourses.forEach(course => {
+            if (course.days && course.days.includes(day.key)) {
+              const startMin = timeToMinutes(course.startTime);
+              const endMin = timeToMinutes(course.endTime);
+              const gridStartMin = START_HOUR * 60;
+              const gridEndMin = END_HOUR * 60;
+
+              const boundStart = Math.max(gridStartMin, startMin);
+              const boundEnd = Math.min(gridEndMin, endMin);
+
+              if (boundEnd > boundStart) {
+                const top = ((boundStart - gridStartMin) / 60) * HOUR_HEIGHT;
+                const duration = boundEnd - boundStart;
+                const height = (duration / 60) * HOUR_HEIGHT;
+
+                const bg = course.color?.bg || '#EEF2FF';
+                const border = course.color?.border || '#C7D2FE';
+                const textColor = course.color?.text || '#4338CA';
+
+                html += `
+                  <div 
+                    onclick="window.openDetailModal('${course.id}')"
+                    class="absolute left-1 right-1 rounded-2xl p-2.5 transition-all duration-200 shadow-xs hover:shadow-md hover:scale-[1.01] hover:z-20 cursor-pointer overflow-hidden flex flex-col justify-between group"
+                    style="top: ${top + 2}px; height: ${Math.max(30, height - 4)}px; background-color: ${bg}; border: 1.5px solid ${border};"
+                    title="${course.name} - ${course.instructor} (${course.startTime} ~ ${course.endTime})"
+                  >
+                    <div>
+                      <h4 class="font-extrabold text-xs sm:text-sm leading-tight line-clamp-1" style="color: ${textColor};">
+                        ${course.name}
+                      </h4>
+                      <div class="flex items-center gap-1 font-bold text-[11px] mt-1 line-clamp-1" style="color: ${textColor};">
+                        <i data-lucide="user" class="w-3 h-3 flex-shrink-0"></i>
+                        <span class="truncate">${course.instructor}</span>
+                      </div>
+                    </div>
+
+                    <div class="text-[10px] font-bold opacity-80 mt-auto pt-1 flex items-center justify-between" style="color: ${textColor};">
+                      <span>${course.startTime} ~ ${course.endTime}</span>
+                    </div>
+                  </div>
+                `;
+              }
+            }
+          });
+
+          html += `</div>`;
+        });
+
+        html += `</div>`;
+        container.innerHTML = html;
+
+        syncHeaderUI();
+      }
+
+      function syncHeaderUI() {
+        [1, 2, 3].forEach(w => {
+          const btn = document.getElementById(`tab-week-${w}`);
+          const countBadge = document.getElementById(`badge-count-w${w}`);
+          const count = (appState.weeks[w] || []).length;
+
+          if (countBadge) countBadge.textContent = count;
+
+          if (btn) {
+            if (appState.currentWeek === w) {
+              btn.className = 'week-tab-btn flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer bg-white text-indigo-600 shadow-xs';
+            } else {
+              btn.className = 'week-tab-btn flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold transition cursor-pointer text-slate-600 hover:text-slate-900';
+            }
+          }
+        });
+
+        const titleInput = document.getElementById('timetable-title-input');
+        const pill = document.getElementById('current-week-pill');
+        if (titleInput) titleInput.value = appState.titles[appState.currentWeek] || `${appState.currentWeek}주차 시간표`;
+        if (pill) pill.textContent = `${appState.currentWeek}주차 보기`;
+
+        renderSidebar();
+        renderStatisticsDashboard();
+        if (window.lucide) lucide.createIcons();
+      }
+
+      function renderSidebar() {
+        const listEl = document.getElementById('sidebar-course-list');
+        const emptyEl = document.getElementById('sidebar-empty-state');
+        const countBadge = document.getElementById('sidebar-course-count');
+        const currentCourses = appState.weeks[appState.currentWeek] || [];
+
+        if (countBadge) countBadge.textContent = `${currentCourses.length}개`;
+
+        if (!listEl || !emptyEl) return;
+
+        if (currentCourses.length === 0) {
+          listEl.innerHTML = '';
+          emptyEl.classList.remove('hidden');
+          emptyEl.classList.add('flex');
+          return;
+        }
+
+        emptyEl.classList.add('hidden');
+        emptyEl.classList.remove('flex');
+
+        let html = '';
+        currentCourses.forEach(c => {
+          const daysText = (c.days || [])
+            .map(dKey => DAYS.find(d => d.key === dKey)?.short || '')
+            .join(', ');
+          const dot = c.color?.dot || '#6366F1';
+
+          html += `
+            <div class="group p-3 rounded-2xl border border-slate-200 hover:border-indigo-300 hover:shadow-xs bg-white transition flex items-center justify-between gap-2.5">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: ${dot};"></span>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <h4 class="font-bold text-xs text-slate-800 truncate">${c.name}</h4>
+                    <span class="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">${daysText}</span>
+                  </div>
+                  <div class="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1 truncate">
+                    <i data-lucide="user" class="w-3 h-3 text-slate-400"></i>
+                    <span class="font-semibold text-slate-700">${c.instructor}</span>
+                    <span class="text-slate-300">•</span>
+                    <span class="text-slate-400">${c.startTime}~${c.endTime}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition">
+                <button onclick="window.openEditModal('${c.id}')" class="p-1 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition cursor-pointer" title="수정">
+                  <i data-lucide="edit-2" class="w-3.5 h-3.5"></i>
+                </button>
+                <button onclick="window.deleteCourse('${c.id}')" class="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer" title="삭제">
+                  <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+          `;
+        });
+
+        listEl.innerHTML = html;
+        if (window.lucide) lucide.createIcons();
+      }
+
+      function initPalette() {
+        const container = document.getElementById('color-palette-list');
+        const customPicker = document.getElementById('custom-color-picker');
+        const customHex = document.getElementById('custom-color-hex');
+        if (!container) return;
+
+        container.innerHTML = '';
+        COLOR_PRESETS.forEach(preset => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `w-7 h-7 rounded-xl transition transform hover:scale-110 flex items-center justify-center cursor-pointer border ${
+            appState.selectedColor.hex === preset.hex ? 'ring-2 ring-indigo-600 ring-offset-2 scale-105' : 'border-slate-200'
+          }`;
+          btn.style.backgroundColor = preset.dot;
+          btn.title = preset.name;
+          btn.onclick = () => {
+            appState.selectedColor = preset;
+            updateColorUI();
+          };
+          container.appendChild(btn);
+        });
+
+        if (customPicker) {
+          customPicker.addEventListener('input', (e) => {
+            const hex = e.target.value;
+            if (customHex) customHex.textContent = hex.toUpperCase();
+            appState.selectedColor = {
+              name: '커스텀 색상',
+              hex: hex,
+              bg: hex + '15',
+              border: hex + '60',
+              text: hex,
+              dot: hex
+            };
+            updateColorUI();
+          });
+        }
+
+        document.getElementById('form-name')?.addEventListener('input', updateFormLivePreview);
+        document.getElementById('form-instructor')?.addEventListener('input', updateFormLivePreview);
+      }
+
+      function updateColorUI() {
+        const preview = document.getElementById('modal-color-preview');
+        const nameLabel = document.getElementById('selected-color-name');
+        if (preview) {
+          preview.style.backgroundColor = appState.selectedColor.bg;
+          preview.style.borderColor = appState.selectedColor.border;
+          preview.style.color = appState.selectedColor.text;
+        }
+        if (nameLabel) nameLabel.textContent = appState.selectedColor.name;
+
+        const container = document.getElementById('color-palette-list');
+        if (container) {
+          Array.from(container.children).forEach((btn, idx) => {
+            if (COLOR_PRESETS[idx] && COLOR_PRESETS[idx].hex === appState.selectedColor.hex) {
+              btn.classList.add('ring-2', 'ring-indigo-600', 'ring-offset-2', 'scale-105');
+            } else {
+              btn.classList.remove('ring-2', 'ring-indigo-600', 'ring-offset-2', 'scale-105');
+            }
+          });
+        }
+      }
+
+      function updateFormLivePreview() {
+        const nameInput = document.getElementById('form-name')?.value.trim();
+        const instructorInput = document.getElementById('form-instructor')?.value.trim();
+        const startVal = document.getElementById('form-start-time')?.value;
+        const endVal = document.getElementById('form-end-time')?.value;
+
+        const titleEl = document.getElementById('preview-title');
+        const instEl = document.getElementById('preview-instructor');
+        const timeEl = document.getElementById('preview-time');
+
+        if (titleEl) titleEl.textContent = nameInput || '과목명 미리보기';
+        if (instEl) instEl.textContent = instructorInput || '강사명 미리보기';
+        if (timeEl) timeEl.textContent = `${startVal} ~ ${endVal}`;
+      }
+
+      function findConflicts(ignoreId, selectedDays, startTime, endTime) {
+        const currentCourses = appState.weeks[appState.currentWeek] || [];
+        const sM = timeToMinutes(startTime);
+        const eM = timeToMinutes(endTime);
+        const conflicts = [];
+
+        currentCourses.forEach(c => {
+          if (c.id === ignoreId) return;
+          const overlapDays = (c.days || []).filter(d => selectedDays.includes(d));
+          if (overlapDays.length > 0) {
+            const csM = timeToMinutes(c.startTime);
+            const ceM = timeToMinutes(c.endTime);
+            if (Math.max(sM, csM) < Math.min(eM, ceM)) {
+              const dayStr = overlapDays.map(dKey => DAYS.find(d => d.key === dKey)?.short).join('/');
+              conflicts.push(`[${dayStr}] ${c.name} (${c.instructor}, ${c.startTime}~${c.endTime})`);
+            }
+          }
+        });
+        return conflicts;
+      }
+
+      window.handleSaveCourse = function(e) {
+        e.preventDefault();
+
+        const editId = document.getElementById('form-edit-id').value;
+        const name = document.getElementById('form-name').value.trim();
+        const instructor = document.getElementById('form-instructor').value.trim();
+        const startTime = document.getElementById('form-start-time').value;
+        const endTime = document.getElementById('form-end-time').value;
+
+        if (!name) {
+          showToast('과목명을 입력해주세요.', 'error');
+          return;
+        }
+        if (!instructor) {
+          showToast('강사명을 입력해주세요.', 'error');
+          return;
+        }
+
+        const selectedDays = [];
+        document.querySelectorAll('#form-days-selector .day-select-btn').forEach(btn => {
+          if (btn.classList.contains('bg-indigo-600')) {
+            selectedDays.push(btn.dataset.day);
+          }
+        });
+
+        const dayError = document.getElementById('form-day-error');
+        if (selectedDays.length === 0) {
+          if (dayError) dayError.classList.remove('hidden');
+          return;
+        }
+        if (dayError) dayError.classList.add('hidden');
+
+        const sMin = timeToMinutes(startTime);
+        const eMin = timeToMinutes(endTime);
+        if (sMin >= eMin) {
+          showToast('종료 시간은 시작 시간보다 뒤이어야 합니다.', 'error');
+          return;
+        }
+
+        // Conflict checking
+        const conflicts = findConflicts(editId, selectedDays, startTime, endTime);
+        const alertBox = document.getElementById('modal-overlap-alert');
+        const alertDesc = document.getElementById('modal-overlap-desc');
+
+        if (conflicts.length > 0 && alertBox && alertBox.classList.contains('hidden')) {
+          alertDesc.textContent = `동일 시간 중복: ${conflicts.join(', ')}. 한 번 더 저장 버튼을 누르면 그대로 반영됩니다.`;
+          alertBox.classList.remove('hidden');
+          showToast('해당 시간에 다른 수업 일정이 있습니다.', 'warning');
+          return;
+        }
+
+        if (selectedDays.includes('sat') || selectedDays.includes('sun')) {
+          appState.showWeekend = true;
+          const wt = document.getElementById('weekend-toggle');
+          if (wt) wt.checked = true;
+        }
+
+        const weekList = appState.weeks[appState.currentWeek] || [];
+
+        if (editId) {
+          const idx = weekList.findIndex(c => c.id === editId);
+          if (idx !== -1) {
+            weekList[idx] = {
+              ...weekList[idx],
+              name,
+              instructor,
+              days: selectedDays,
+              startTime,
+              endTime,
+              color: appState.selectedColor
+            };
+            showToast(`'${name}' 과목이 수정되었습니다.`, 'success');
+          }
+        } else {
+          const newCourse = {
+            id: 'c_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            name,
+            instructor,
+            days: selectedDays,
+            startTime,
+            endTime,
+            color: appState.selectedColor
+          };
+          weekList.push(newCourse);
+          showToast(`'${name}' (${instructor}) 과목이 등록되었습니다.`, 'success');
+        }
+
+        appState.weeks[appState.currentWeek] = weekList;
+        savePersistedState();
+        window.closeCourseModal();
+        renderTimetableGrid();
+      };
+
+      window.openAddModal = function() {
+        document.getElementById('form-edit-id').value = '';
+        document.getElementById('modal-heading').textContent = '새 과목 등록';
+        document.getElementById('form-submit-btn').textContent = '저장하기';
+        document.getElementById('modal-week-badge').textContent = `${appState.currentWeek}주차에 등록`;
+
+        const form = document.getElementById('course-form');
+        form.reset();
+
+        document.querySelectorAll('#form-days-selector .day-select-btn').forEach(btn => {
+          btn.classList.remove('bg-indigo-600', 'text-white');
+          btn.classList.add('border-slate-200');
+        });
+        const monBtn = document.querySelector('#form-days-selector .day-select-btn[data-day="mon"]');
+        if (monBtn) {
+          monBtn.classList.add('bg-indigo-600', 'text-white');
+          monBtn.classList.remove('border-slate-200');
+        }
+
+        document.getElementById('form-start-time').value = '09:00';
+        updateEndTimeOptions();
+        document.getElementById('form-end-time').value = '10:00';
+
+        const currCount = (appState.weeks[appState.currentWeek] || []).length;
+        appState.selectedColor = COLOR_PRESETS[currCount % COLOR_PRESETS.length];
+        updateColorUI();
+        updateFormLivePreview();
+
+        document.getElementById('modal-overlap-alert').classList.add('hidden');
+        document.getElementById('form-day-error').classList.add('hidden');
+        document.getElementById('course-modal').classList.remove('hidden');
+      };
+
+      window.openEditModal = function(courseId) {
+        const weekList = appState.weeks[appState.currentWeek] || [];
+        const course = weekList.find(c => c.id === courseId);
+        if (!course) return;
+
+        document.getElementById('form-edit-id').value = course.id;
+        document.getElementById('modal-heading').textContent = '과목 정보 수정';
+        document.getElementById('form-submit-btn').textContent = '수정 완료';
+        document.getElementById('modal-week-badge').textContent = `${appState.currentWeek}주차 수정`;
+
+        document.getElementById('form-name').value = course.name;
+        document.getElementById('form-instructor').value = course.instructor || '';
+        document.getElementById('form-start-time').value = course.startTime;
+        updateEndTimeOptions();
+        document.getElementById('form-end-time').value = course.endTime;
+
+        document.querySelectorAll('#form-days-selector .day-select-btn').forEach(btn => {
+          const dKey = btn.dataset.day;
+          if (course.days && course.days.includes(dKey)) {
+            btn.classList.add('bg-indigo-600', 'text-white');
+            btn.classList.remove('border-slate-200');
+          } else {
+            btn.classList.remove('bg-indigo-600', 'text-white');
+            btn.classList.add('border-slate-200');
+          }
+        });
+
+        appState.selectedColor = course.color || COLOR_PRESETS[0];
+        updateColorUI();
+        updateFormLivePreview();
+
+        document.getElementById('modal-overlap-alert').classList.add('hidden');
+        document.getElementById('form-day-error').classList.add('hidden');
+
+        window.closeDetailModal();
+        document.getElementById('course-modal').classList.remove('hidden');
+      };
+
+      window.closeCourseModal = function() {
+        document.getElementById('course-modal').classList.add('hidden');
+      };
+
+      window.openDetailModal = function(courseId) {
+        const weekList = appState.weeks[appState.currentWeek] || [];
+        const course = weekList.find(c => c.id === courseId);
+        if (!course) return;
+
+        appState.activeDetailCourse = course;
+
+        document.getElementById('detail-title').textContent = course.name;
+        document.getElementById('detail-instructor').textContent = course.instructor;
+        document.getElementById('detail-color-name').textContent = course.color?.name || '구분색';
+        document.getElementById('detail-color-pill').style.backgroundColor = course.color?.dot || '#6366F1';
+        document.getElementById('detail-time').textContent = `${course.startTime} ~ ${course.endTime} (24H)`;
+        
+        const singleDur = timeToMinutes(course.endTime) - timeToMinutes(course.startTime);
+        document.getElementById('detail-duration').textContent = formatDuration(singleDur);
+
+        const daysLabel = (course.days || [])
+          .map(dKey => DAYS.find(d => d.key === dKey)?.label)
+          .join(', ');
+        document.getElementById('detail-days').textContent = daysLabel || '-';
+
+        const editBtn = document.getElementById('detail-edit-btn');
+        const deleteBtn = document.getElementById('detail-delete-btn');
+
+        editBtn.onclick = () => window.openEditModal(course.id);
+        deleteBtn.onclick = () => {
+          window.deleteCourse(course.id);
+          window.closeDetailModal();
+        };
+
+        document.getElementById('detail-modal').classList.remove('hidden');
+      };
+
+      window.closeDetailModal = function() {
+        document.getElementById('detail-modal').classList.add('hidden');
+        appState.activeDetailCourse = null;
+      };
+
+      window.deleteCourse = function(courseId) {
+        const weekList = appState.weeks[appState.currentWeek] || [];
+        const target = weekList.find(c => c.id === courseId);
+        if (!target) return;
+
+        appState.weeks[appState.currentWeek] = weekList.filter(c => c.id !== courseId);
+        savePersistedState();
+        showToast(`'${target.name}' 과목이 삭제되었습니다.`, 'info');
+        renderTimetableGrid();
+      };
+
+      window.switchWeek = function(weekNum) {
+        appState.currentWeek = weekNum;
+        savePersistedState();
+        renderTimetableGrid();
+      };
+
+      window.setStatsScope = function(scope) {
+        appState.statsScope = scope;
+        const curBtn = document.getElementById('scope-current-btn');
+        const allBtn = document.getElementById('scope-total-btn');
+        if (scope === 'current') {
+          curBtn.className = 'px-3 py-1.5 rounded-lg bg-white text-indigo-600 shadow-xs transition cursor-pointer';
+          allBtn.className = 'px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition cursor-pointer';
+        } else {
+          allBtn.className = 'px-3 py-1.5 rounded-lg bg-white text-indigo-600 shadow-xs transition cursor-pointer';
+          curBtn.className = 'px-3 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 transition cursor-pointer';
+        }
+        renderStatisticsDashboard();
+      };
+
+      window.openCopyWeekModal = function() {
+        document.getElementById('copy-src-label').textContent = `${appState.currentWeek}주차`;
+        document.getElementById('copy-week-modal').classList.remove('hidden');
+      };
+
+      window.closeCopyWeekModal = function() {
+        document.getElementById('copy-week-modal').classList.add('hidden');
+      };
+
+      window.executeCopyWeek = function() {
+        const selected = document.querySelector('input[name="copy-dest"]:checked')?.value;
+        const sourceCourses = JSON.parse(JSON.stringify(appState.weeks[appState.currentWeek] || []));
+
+        if (!selected) return;
+
+        if (selected === 'all') {
+          [1, 2, 3].forEach(w => {
+            if (w !== appState.currentWeek) {
+              appState.weeks[w] = JSON.parse(JSON.stringify(sourceCourses));
+            }
+          });
+          showToast(`모든 주차에 ${appState.currentWeek}주차 시간표가 복사되었습니다.`, 'success');
+        } else {
+          const destWeek = parseInt(selected, 10);
+          appState.weeks[destWeek] = sourceCourses;
+          showToast(`${destWeek}주차로 성공적으로 복사되었습니다.`, 'success');
+        }
+
+        savePersistedState();
+        window.closeCopyWeekModal();
+        renderTimetableGrid();
+      };
+
+      window.resetWeekData = function() {
+        appState.weeks[appState.currentWeek] = [];
+        savePersistedState();
+        showToast(`${appState.currentWeek}주차 시간표를 초기화했습니다.`, 'info');
+        renderTimetableGrid();
+      };
+
+      window.loadSampleData = function() {
+        appState.weeks[1] = JSON.parse(JSON.stringify(SAMPLE_WEEK_1));
+        appState.weeks[2] = JSON.parse(JSON.stringify(SAMPLE_WEEK_2));
+        appState.weeks[3] = JSON.parse(JSON.stringify(SAMPLE_WEEK_3));
+        savePersistedState();
+        showToast('3주간의 추천 샘플 시간표가 로드되었습니다.', 'success');
+        renderTimetableGrid();
+      };
+
+      window.exportExcel = function() {
+        try {
+          if (typeof XLSX === 'undefined') {
+            showToast('엑셀 생성 라이브러리를 준비 중입니다.', 'error');
+            return;
+          }
+
+          const wb = XLSX.utils.book_new();
+          const activeDays = appState.showWeekend ? DAYS : DAYS.slice(0, 5);
+
+          [1, 2, 3].forEach(w => {
+            const weekCourses = appState.weeks[w] || [];
+            const matrixHeader = ['시간 (24H)', ...activeDays.map(d => `${d.label} (${d.short})`)];
+            const matrixRows = [matrixHeader];
+
+            for (let i = 0; i < (END_HOUR - START_HOUR); i++) {
+              const hStart = START_HOUR + i;
+              const hEnd = hStart + 1;
+              const timeLabel = `${String(hStart).padStart(2, '0')}:00 ~ ${String(hEnd).padStart(2, '0')}:00 (${i + 1}교시)`;
+              const row = [timeLabel];
+
+              activeDays.forEach(day => {
+                const matches = weekCourses.filter(c => {
+                  if (!c.days || !c.days.includes(day.key)) return false;
+                  const cStart = timeToMinutes(c.startTime);
+                  const cEnd = timeToMinutes(c.endTime);
+                  return Math.max(cStart, hStart * 60) < Math.min(cEnd, hEnd * 60);
+                });
+
+                if (matches.length > 0) {
+                  row.push(matches.map(m => `${m.name} [강사: ${m.instructor}]`).join(' / '));
+                } else {
+                  row.push('');
+                }
+              });
+
+              matrixRows.push(row);
+            }
+
+            const ws = XLSX.utils.aoa_to_sheet(matrixRows);
+            XLSX.utils.book_append_sheet(wb, ws, `${w}주차_시간표`);
+          });
+
+          const stats = computeColorStatistics();
+          const statsRows = [
+            ['구분', '구분색상명', '색상코드(HEX)', '배정 과목수', '총 소요시간(분)', '총 소요시간', '점유율(%)', '포함 과목 및 강사']
+          ];
+
+          stats.groups.forEach(g => {
+            const hoursStr = formatDuration(g.totalMinutes);
+            const percent = stats.grandTotalMinutes > 0
+              ? ((g.totalMinutes / stats.grandTotalMinutes) * 100).toFixed(1)
+              : 0;
+            const detailStr = g.items.map(it => `${it.name}(${it.instructor})`).join(', ');
+
+            statsRows.push([
+              appState.statsScope === 'current' ? `${appState.currentWeek}주차` : '3주 통합',
+              g.name,
+              g.color?.hex || '#6366F1',
+              g.courseCount,
+              g.totalMinutes,
+              hoursStr,
+              `${percent}%`,
+              detailStr
+            ]);
+          });
+
+          statsRows.push([
+            '합계',
+            '전체 총합',
+            '-',
+            stats.totalCourses,
+            stats.grandTotalMinutes,
+            formatDuration(stats.grandTotalMinutes),
+            '100%',
+            '-'
+          ]);
+
+          const wsStats = XLSX.utils.aoa_to_sheet(statsRows);
+          XLSX.utils.book_append_sheet(wb, wsStats, '색상및강사별_집계통계');
+
+          const fileName = `시간표_3주간통합_${new Date().toISOString().slice(0, 10)}.xlsx`;
+          XLSX.writeFile(wb, fileName);
+          showToast('엑셀(.xlsx) 파일이 다운로드되었습니다.', 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('엑셀 내보내기 중 문제가 발생했습니다.', 'error');
+        }
+      };
+
+      function generateHwpTableHtml() {
+        const activeDays = appState.showWeekend ? DAYS : DAYS.slice(0, 5);
+        const currentCourses = appState.weeks[appState.currentWeek] || [];
+        const stats = computeColorStatistics();
+
+        let tableHtml = `
+          <div style="font-family:'Malgun Gothic','맑은 고딕',sans-serif; color:#1e293b; padding:10px;">
+            <h2 style="font-size:18px; font-weight:bold; margin-bottom:6px; color:#0f172a;">${appState.titles[appState.currentWeek]} (24H 포맷)</h2>
+            <p style="font-size:12px; color:#64748b; margin-bottom:12px;">시간 범위: 09:00 ~ 21:00 (1시간 단위 구분) | 총 수업시간: ${formatDuration(stats.grandTotalMinutes)}</p>
+            
+            <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse; width:100%; text-align:center; font-size:11px; border:1.5px solid #334155;">
+              <thead>
+                <tr style="background-color:#f1f5f9; color:#0f172a; font-weight:bold; height:36px;">
+                  <th style="width:110px; border:1px solid #cbd5e1;">시간 / 교시</th>
+        `;
+
+        activeDays.forEach(d => {
+          tableHtml += `<th style="border:1px solid #cbd5e1; min-width:110px;">${d.label} (${d.short})</th>`;
+        });
+
+        tableHtml += `</tr></thead><tbody>`;
+
+        for (let i = 0; i < (END_HOUR - START_HOUR); i++) {
+          const hStart = START_HOUR + i;
+          const hEnd = hStart + 1;
+          const timeLabel = `${String(hStart).padStart(2, '0')}:00 ~ ${String(hEnd).padStart(2, '0')}:00<br><span style="font-size:9px; color:#6366f1;">(${i + 1}교시)</span>`;
+
+          tableHtml += `<tr style="height:48px;"><td style="background-color:#f8fafc; font-weight:bold; border:1px solid #cbd5e1;">${timeLabel}</td>`;
+
+          activeDays.forEach(day => {
+            const matches = currentCourses.filter(c => {
+              if (!c.days || !c.days.includes(day.key)) return false;
+              const cS = timeToMinutes(c.startTime);
+              const cE = timeToMinutes(c.endTime);
+              return Math.max(cS, hStart * 60) < Math.min(cE, hEnd * 60);
+            });
+
+            if (matches.length > 0) {
+              const content = matches.map(m => {
+                const bg = m.color?.bg || '#EEF2FF';
+                const text = m.color?.text || '#4338CA';
+                return `<div style="background-color:${bg}; color:${text}; border-radius:4px; padding:3px; margin:2px 0; font-weight:bold;">
+                  ${m.name}<br><span style="font-size:9px; font-weight:bold;">강사: ${m.instructor}</span><br><span style="font-size:9px; font-weight:normal;">(${m.startTime}~${m.endTime})</span>
+                </div>`;
+              }).join('');
+              tableHtml += `<td style="border:1px solid #cbd5e1; vertical-align:middle; padding:4px;">${content}</td>`;
+            } else {
+              tableHtml += `<td style="border:1px solid #cbd5e1; background-color:#ffffff;"></td>`;
+            }
+          });
+
+          tableHtml += `</tr>`;
+        }
+
+        tableHtml += `</tbody></table>`;
+
+        tableHtml += `
+          <h3 style="font-size:14px; font-weight:bold; margin-top:20px; margin-bottom:8px;">[구분 색상별 총 소요시간 집계표]</h3>
+          <table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse; width:100%; text-align:center; font-size:11px; border:1px solid #cbd5e1;">
+            <tr style="background-color:#f1f5f9; font-weight:bold;">
+              <th style="border:1px solid #cbd5e1;">구분 색상</th>
+              <th style="border:1px solid #cbd5e1;">과목 및 담당 강사</th>
+              <th style="border:1px solid #cbd5e1;">수업 수</th>
+              <th style="border:1px solid #cbd5e1;">총 소요시간</th>
+              <th style="border:1px solid #cbd5e1;">비율(%)</th>
+            </tr>
+        `;
+
+        stats.groups.forEach(g => {
+          const percent = stats.grandTotalMinutes > 0
+            ? ((g.totalMinutes / stats.grandTotalMinutes) * 100).toFixed(1)
+            : 0;
+          const courseList = g.items.map(it => `${it.name} (${it.instructor})`).join(', ');
+
+          tableHtml += `
+            <tr>
+              <td style="border:1px solid #cbd5e1; font-weight:bold; color:${g.color?.text || '#334155'}; background-color:${g.color?.bg || '#ffffff'};">${g.name}</td>
+              <td style="border:1px solid #cbd5e1; text-align:left; padding-left:8px;">${courseList}</td>
+              <td style="border:1px solid #cbd5e1;">${g.courseCount}개</td>
+              <td style="border:1px solid #cbd5e1; font-weight:bold;">${formatDuration(g.totalMinutes)}</td>
+              <td style="border:1px solid #cbd5e1;">${percent}%</td>
+            </tr>
+          `;
+        });
+
+        tableHtml += `
+            <tr style="background-color:#f8fafc; font-weight:bold;">
+              <td style="border:1px solid #cbd5e1;" colspan="2">합계</td>
+              <td style="border:1px solid #cbd5e1;">${stats.totalCourses}개</td>
+              <td style="border:1px solid #cbd5e1;">${formatDuration(stats.grandTotalMinutes)}</td>
+              <td style="border:1px solid #cbd5e1;">100%</td>
+            </tr>
+          </table>
+        </div>`;
+
+        return tableHtml;
+      }
+
+      window.copyHwpTable = function() {
+        try {
+          const html = generateHwpTableHtml();
+
+          const tempDiv = document.createElement('div');
+          tempDiv.style.position = 'fixed';
+          tempDiv.style.left = '-9999px';
+          tempDiv.innerHTML = html;
+          document.body.appendChild(tempDiv);
+
+          const range = document.createRange();
+          range.selectNodeContents(tempDiv);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+
+          const successful = document.execCommand('copy');
+          document.body.removeChild(tempDiv);
+          selection.removeAllRanges();
+
+          if (successful) {
+            showToast('한글(HWP) 표가 클립보드에 복사되었습니다. 한글에서 Ctrl+V로 붙여넣으세요!', 'success');
+          } else {
+            showToast('복사에 실패했습니다.', 'error');
+          }
+        } catch (e) {
+          console.error(e);
+          showToast('표 클립보드 복사 중 오류가 발생했습니다.', 'error');
+        }
+      };
+
+      window.downloadHwpFile = function() {
+        const html = generateHwpTableHtml();
+        const fullDoc = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>${appState.titles[appState.currentWeek]}</title>
+          </head>
+          <body>${html}</body>
+          </html>
+        `;
+        const blob = new Blob([fullDoc], { type: 'application/haansofthwp;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `시간표_${appState.currentWeek}주차_${new Date().toISOString().slice(0, 10)}.hwp`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('한글 호환 파일(.hwp)이 다운로드되었습니다.', 'success');
+      };
+
+      window.exportImage = async function() {
+        const target = document.getElementById('print-capture-area');
+        if (!target || typeof html2canvas === 'undefined') {
+          showToast('이미지 변환 모듈을 불러오지 못했습니다.', 'error');
+          return;
+        }
+
+        try {
+          showToast('고화질 이미지를 생성 중입니다...', 'info');
+          const canvas = await html2canvas(target, {
+            scale: 2,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false
+          });
+
+          const dataUrl = canvas.toDataURL('image/png');
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = `시간표_${appState.currentWeek}주차_${new Date().toISOString().slice(0, 10)}.png`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          showToast('시간표 PNG 이미지가 다운로드되었습니다.', 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('이미지 저장 중 오류가 발생했습니다.', 'error');
+        }
+      };
+
+      window.exportPdf = async function() {
+        const target = document.getElementById('print-capture-area');
+        if (!target || typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+          showToast('PDF 변환 모듈을 준비 중입니다.', 'error');
+          return;
+        }
+
+        try {
+          showToast('PDF 문서를 생성 중입니다...', 'info');
+          const canvas = await html2canvas(target, {
+            scale: 2,
+            backgroundColor: '#ffffff',
+            useCORS: true,
+            logging: false
+          });
+
+          const imgData = canvas.toDataURL('image/png');
+          const { jsPDF } = window.jspdf;
+          const pdf = new jsPDF('landscape', 'mm', 'a4');
+          const pageWidth = pdf.internal.pageSize.getWidth();
+          const pageHeight = pdf.internal.pageSize.getHeight();
+
+          const imgWidth = pageWidth - 20;
+          const imgHeight = (canvas.height * imgWidth) / canvas.width;
+
+          pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, Math.min(imgHeight, pageHeight - 20));
+          pdf.save(`시간표_${appState.currentWeek}주차_${new Date().toISOString().slice(0, 10)}.pdf`);
+          showToast('PDF 문서가 다운로드되었습니다.', 'success');
+        } catch (err) {
+          console.error(err);
+          showToast('PDF 생성 중 오류가 발생했습니다.', 'error');
+        }
+      };
+
+      function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'pointer-events-auto flex items-center gap-2 px-4 py-3 rounded-2xl text-xs font-bold shadow-xl transition-all duration-300 transform translate-y-4 opacity-0 border';
+
+        let iconName = 'info';
+        if (type === 'success') {
+          toast.classList.add('bg-emerald-50', 'text-emerald-800', 'border-emerald-200');
+          iconName = 'check-circle-2';
+        } else if (type === 'error') {
+          toast.classList.add('bg-rose-50', 'text-rose-800', 'border-rose-200');
+          iconName = 'alert-circle';
+        } else if (type === 'warning') {
+          toast.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-200');
+          iconName = 'alert-triangle';
+        } else {
+          toast.classList.add('bg-slate-900', 'text-white', 'border-slate-800');
+          iconName = 'info';
+        }
+
+        toast.innerHTML = `
+          <i data-lucide="${iconName}" class="w-4 h-4 flex-shrink-0"></i>
+          <span>${message}</span>
+        `;
+
+        container.appendChild(toast);
+        if (window.lucide) lucide.createIcons();
+
+        requestAnimationFrame(() => {
+          toast.classList.remove('translate-y-4', 'opacity-0');
+        });
+
+        setTimeout(() => {
+          toast.classList.add('opacity-0', 'translate-y-2');
+          setTimeout(() => {
+            if (toast.parentNode) toast.parentNode.removeChild(toast);
+          }, 300);
+        }, 3500);
+      }
+
+      // DOM Initialization
+      document.addEventListener('DOMContentLoaded', () => {
+        loadPersistedState();
+        populateTimePickers();
+        initPalette();
+
+        const weekendToggle = document.getElementById('weekend-toggle');
+        if (weekendToggle) {
+          weekendToggle.checked = appState.showWeekend;
+          weekendToggle.addEventListener('change', (e) => {
+            appState.showWeekend = e.target.checked;
+            savePersistedState();
+            renderTimetableGrid();
+          });
+        }
+
+        const titleInput = document.getElementById('timetable-title-input');
+        if (titleInput) {
+          titleInput.addEventListener('input', (e) => {
+            appState.titles[appState.currentWeek] = e.target.value;
+            savePersistedState();
+          });
+        }
+
+        const exportBtn = document.getElementById('export-dropdown-btn');
+        const exportMenu = document.getElementById('export-dropdown-menu');
+        if (exportBtn && exportMenu) {
+          exportBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            exportMenu.classList.toggle('hidden');
+          });
+
+          document.addEventListener('click', (e) => {
+            if (!exportMenu.contains(e.target) && !exportBtn.contains(e.target)) {
+              exportMenu.classList.add('hidden');
+            }
+          });
+        }
+
+        document.querySelectorAll('#form-days-selector .day-select-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            btn.classList.toggle('bg-indigo-600');
+            btn.classList.toggle('text-white');
+            btn.classList.toggle('border-slate-200');
+          });
+        });
+
+        renderTimetableGrid();
+      });
+
+    })();
+  </script>
+</body>
+</html>
